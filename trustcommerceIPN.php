@@ -144,7 +144,14 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
     //    $objects['contribution']->total_amount = $objects['contribution']->total_amount;
     $objects['contribution']->trxn_id = $input['trxn_id'];
 
-    // since we have processor loaded for sure at this point,
+    // check if contribution is already completed, if so we ignore this ipn
+    if ($objects['contribution']->contribution_status_id == 1) {
+      $transaction->commit();
+      CRM_Core_Error::debug_log_message("returning since contribution has already been handled");
+      echo 'Success: Contribution has already been handled<p>';
+      echo '';
+      return TRUE;
+    }
 
     $sendNotification = FALSE;
     if ($input['status'] == 1) {
@@ -169,8 +176,8 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
       $recur->trxn_id = $input['trxn_id'];
       $recur->total_amount = $input['amount'];
       $recur->payment_instrument_id = 1;
-      $recur->fee = NULL;
-      $recur->net_amount = NULL;
+      $recur->fee = 0;
+      $recur->net_amount = $input['amount'];
 
       $recur->modified_date = $now;
       $recur->contribution_status_id = array_search($statusName, $contributionStatus);
@@ -183,9 +190,8 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
       $recur->trxn_id = $input['trxn_id'];
       $recur->total_amount = $input['amount'];
       $recur->payment_instrument_id = 1;
-      $recur->fee = NULL;
-      $recur->net_amount = NULL;
-
+      $recur->fee = 0;
+      $recur->net_amount = $input['amount'];
 
       $recur->contribution_status_id = array_search('Failed', $contributionStatus);
       $recur->cancel_date = $now;
@@ -193,23 +199,10 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
 
       CRM_Core_Error::debug_log_message("Subscription payment failed");
 
-      // the recurring contribution has declined a payment or has failed
-      // so we just fix the recurring contribution and not change any of
-      // the existing contribiutions
-      // CRM-9036
-      return TRUE;
-
+      $input['skipComponentSync'] = TRUE;
+      $this->failed($objects, $transaction, $input);
     }
 
-
-    // check if contribution is already completed, if so we ignore this ipn
-    if ($objects['contribution']->contribution_status_id == 1) {
-      $transaction->commit();
-      CRM_Core_Error::debug_log_message("returning since contribution has already been handled");
-      echo 'Success: Contribution has already been handled<p>';
-      echo '';
-      return TRUE;
-    }
     $input['is_test'] = 0;
 
     $this->completeTransaction($input, $ids, $objects, $transaction, $recur);
