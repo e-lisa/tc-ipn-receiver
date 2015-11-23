@@ -55,12 +55,11 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
        $ids['trxn_id'] = $input['trxn_id'];
 
        if($this->checkDuplicate($input, $ids) != NULL) {
-	 CRM_Core_Error::debug_log_message("Success: This payment has already been processed.");
-	 echo "Success: This payment has already been processed<p>\n";
+	 $msg = 'TrustCommerceIPN: Skipping duplicate contribution: '.$ids['contribution'].' for contact: '.$ids['contact'].' amount: $'.$input['amount'].' trxn_id: '.$input['trxn_id']."\n";
+	 echo $msg;
+	 CRM_Core_Error::debug_log_message($msg);
 	 exit;
        }
-       var_dump($ids);
-       var_dump($input);
 
        if(array_key_exists('membership', $ids)) {
 	 $membership = array();
@@ -68,8 +67,6 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
 	 $obj = CRM_Member_BAO_Membership::retrieve($params, $membership);
 	 $objects['membership'] = array(&$obj);
        }
-       var_dump($ids);
-       var_dump($input);
 
       $paymentProcessorID = CRM_Core_DAO::getFieldValue('CRM_Financial_DAO_PaymentProcessorType',
 							'TrustCommerce', 'id', 'name'
@@ -101,8 +98,12 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
 
 
     $result = CRM_Core_DAO::executeQuery($sql);
-    $result->fetch();
-    $id = $result->id;
+    if($result->fetch()) {
+      $id = $result->id;
+    } else {
+      $id = NULL;
+    }
+
     return $id;
   }
   protected function processRecur($input, $ids, $objects, $first) {
@@ -133,13 +134,12 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
       $contribution->payment_instrument_id = 1;
       $contribution->amount_level = $objects['contribution']->amount_level;
       $contribution->address_id = $objects['contribution']->address_id;
-      $contribution->honor_contact_id = $objects['contribution']->honor_contact_id;
-      $contribution->honor_type_id = $objects['contribution']->honor_type_id;
       $contribution->campaign_id = $objects['contribution']->campaign_id;
       $contribution->total_amount = $input['amount']; 
 
       $objects['contribution'] = &$contribution;
     }
+
     $objects['contribution']->invoice_id = md5(uniqid(rand(), TRUE));
     //    $objects['contribution']->total_amount = $objects['contribution']->total_amount;
     $objects['contribution']->trxn_id = $input['trxn_id'];
@@ -154,6 +154,13 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
     }
 
     $sendNotification = FALSE;
+
+    $recur->trxn_id = $input['trxn_id'];
+    $recur->total_amount = $input['amount'];
+    $recur->payment_instrument_id = 1;
+    $recur->fee = 0;
+    $recur->net_amount = $input['amount'];
+
     if ($input['status'] == 1) {
 
       // Approved
@@ -173,53 +180,37 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
         $sendNotification = TRUE;
         $subscriptionPaymentStatus = CRM_Core_Payment::RECURRING_PAYMENT_END;
       }
-      $recur->trxn_id = $input['trxn_id'];
-      $recur->total_amount = $input['amount'];
-      $recur->payment_instrument_id = 1;
-      $recur->fee = 0;
-      $recur->net_amount = $input['amount'];
 
       $recur->modified_date = $now;
       $recur->contribution_status_id = array_search($statusName, $contributionStatus);
       $recur->save();
+      $input['is_test'] = 0;
+      $msg = 'TrustCommerceIPN: Created contribution: '.$ids['contribution'].' for contact: '.$ids['contact'].' amount: $'.$input['amount'].' trxn_id: '.$input['trxn_id'].' status: Completed'."\n";
+      echo $msg;
+      CRM_Core_Error::debug_log_message($msg);
+
+      $this->completeTransaction($input, $ids, $objects, $transaction, $recur);
     }
-    else {
+    else if( $input['status'] == 4 ) {
       // Declined
       // failed status
-
-      $recur->trxn_id = $input['trxn_id'];
-      $recur->total_amount = $input['amount'];
-      $recur->payment_instrument_id = 1;
-      $recur->fee = 0;
-      $recur->net_amount = $input['amount'];
-
+      
       $recur->contribution_status_id = array_search('Failed', $contributionStatus);
       $recur->cancel_date = $now;
       $recur->save();
-
-      CRM_Core_Error::debug_log_message("Subscription payment failed");
-
-      $input['skipComponentSync'] = TRUE;
-      $this->failed($objects, $transaction, $input);
+      
+      $msg = 'TrustCommerceIPN: Created contribution: '.$ids['contribution'].' for contact: '.$ids['contact'].' amount: $'.$input['amount'].' trxn_id: '.$input['trxn_id'].' status: Failed'."\n";
+      echo $msg;
+      CRM_Core_Error::debug_log_message($msg);
+      
+      return $this->failed($objects, $transaction);
     }
-
-    $input['is_test'] = 0;
-
-    $this->completeTransaction($input, $ids, $objects, $transaction, $recur);
-
-      echo 'Success: Created new contribution: '.$ids['contribution'].' for cid: '.$ids['contact'].'\n';
-      CRM_Core_Error::debug_log_message('Success: Created new contribution: '.$ids['contribution'].' for cid: '.$ids['contact']);
 
     if ($sendNotification) {
       $autoRenewMembership = FALSE;
-      if ($recur->id &&
-	  isset($ids['membership']) && $ids['membership']
-	  ) {
+      if ($recur->id && isset($ids['membership']) && $ids['membership'] ) {
         $autoRenewMembership = TRUE;
       }
-
-
-
 
       //send recurring Notification email for user
       CRM_Contribute_BAO_ContributionPage::recurringNotify($subscriptionPaymentStatus,
@@ -228,14 +219,7 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
 							   $recur,
 							   $autoRenewMembership
 							   );
-
-
-
-
     }
-
-
-
   }
 
  protected function getIDs($billingid, $input, $module) {
