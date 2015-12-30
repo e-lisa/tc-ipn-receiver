@@ -94,7 +94,7 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
 
   protected function checkDuplicate($input, $ids) {
 //    $sql='select id from civicrm_contribution where receive_date like \''.$input['date'].'%\' and total_amount='.$input['amount'].' and contact_id='.$ids['contact'].' and contribution_status_id =  1 limit 1';
-    $sql="select id from civicrm_contribution where trxn_id = '".$ids['trxn_id']."'";
+    $sql="select id from civicrm_contribution where trxn_id = '".$ids['trxn_id']."' and contribution_status_id != 2";
 
 
     $result = CRM_Core_DAO::executeQuery($sql);
@@ -239,7 +239,7 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
 
     if (!$ids['contributionRecur']) {
       CRM_Core_Error::debug_log_message("Could not find billingid: ".$billingid);
-      echo "Failure: Could not find contributionRecur<p>\n";
+      echo "Failure: Could not find contributionRecur: $billingid <p>\n";
       exit();
     }
 
