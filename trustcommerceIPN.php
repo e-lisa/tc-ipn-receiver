@@ -68,7 +68,7 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
     return $failures;
 
   }
-  
+
   function main($component = 'contribute') {
   static $no = NULL;
     $billingid = CRM_Utils_Request::retrieve('billingid', 'String', $no, FALSE, 'GET');
