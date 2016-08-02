@@ -133,6 +133,10 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
   }
 }
 
+  protected function disableAutorenew($recur_id) {
+
+  }
+
   protected function checkDuplicate($input, $ids) {
 //    $sql='select id from civicrm_contribution where receive_date like \''.$input['date'].'%\' and total_amount='.$input['amount'].' and contact_id='.$ids['contact'].' and contribution_status_id =  1 limit 1';
     $sql="select id from civicrm_contribution where trxn_id = '".$ids['trxn_id']."'";
@@ -280,6 +284,7 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
     $ids['contribution'] = $result->coid;
     $ids['contributionRecur'] = $result->id;
     $ids['contact'] = $result->contact_id;
+    $ids['processor_id'] = $billingid;
 
     if (!$ids['contributionRecur']) {
       CRM_Core_Error::debug_log_message("Could not find billingid: ".$billingid);
