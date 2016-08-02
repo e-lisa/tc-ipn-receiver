@@ -15,19 +15,60 @@
  * You should have received a copy of the GNU General Public License
  * along with CiviCRM.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Copyright (C) 2012
- * Licensed to CiviCRM under the GPL v3 or higher
- *
- * Modified by Lisa Marie Maginnis <lisa@fsf.org> (http://www.fsf.org)
+ * Copyright 2016, Lisa Marie Maginnis <lisa@fsf.org> (http://www.fsf.org)
  *
  */
 
+/**
+  * CiviCRM (Instant Payment Notification) IPN processor module for
+  * TrustCommerece.
+  *
+  * For full documentation on the 
+  * TrustCommerece API, please see the TCDevGuide for more information:
+  * https://vault.trustcommerce.com/downloads/TCDevGuide.htm
+  *
+  * This module supports the following features: Single credit/debit card
+  * transactions, AVS checking, recurring (create, update, and cancel
+  * subscription) optional blacklist with fail2ban,
+  *
+  * @copyright Lisa Marie Maginnis <lisa@fsf.org> (http://www.fsf.org)
+  * @version   1.0
+  * @package   org.fsf.payment.trustcommerce.ipn
+  */
+
+define("MAX_FAILURES", 4)
+
 class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
+
+  /**
+   * Inheret  
+   *
+   * @return void
+   */
   function __construct() {
     parent::__construct();
   }
 
+  function getLastFailures($recur_id) {
+    $sql="SELECT contribution_recur_id, trxn_id, contribution_status_id,
+             SUM(id > COALESCE(
+                ( SELECT max(id) FROM civicrm_contribution AS c2
+                   WHERE c2.id = c.id and c2.contribution_status_id = 1),
+                4 )) AS numfails
+              FROM civicrm_contribution AS c
+              WHERE c.contribution_recur_id = $recur_id GROUP BY c.contribution_recur_id;"
 
+    $result = CRM_Core_DAO::executeQuery($sql);
+    if($result->fetch()) {
+      $failures = $result->numfails;
+    } else {
+      $failures = NULL;
+    }
+
+    return $failures;
+
+  }
+  
   function main($component = 'contribute') {
   static $no = NULL;
     $billingid = CRM_Utils_Request::retrieve('billingid', 'String', $no, FALSE, 'GET');
