@@ -243,6 +243,11 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
       $msg = 'TrustCommerceIPN: Created contribution: '.$ids['contribution'].' for contact: '.$ids['contact'].' amount: $'.$input['amount'].' trxn_id: '.$input['trxn_id'].' status: Failed'."\n";
       echo $msg;
       CRM_Core_Error::debug_log_message($msg);
+
+      /* Action for repeated failures */
+      if(MAX_FAILURES <= $this->getLastFailures($ids['contributionRecur'])) {
+	$this->disableAutoRenew(($ids['contributionRecur']));
+      }
       
       return $this->failed($objects, $transaction);
     }
