@@ -36,7 +36,7 @@
   * @package   org.fsf.payment.trustcommerce.ipn
   */
 
-define("MAX_FAILURES", 4)
+define("MAX_FAILURES", 4);
 
 class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
 
@@ -50,13 +50,13 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
   }
 
   function getLastFailures($recur_id) {
-    $sql="SELECT contribution_recur_id, trxn_id, contribution_status_id,
-             SUM(id > COALESCE(
-                ( SELECT max(id) FROM civicrm_contribution AS c2
-                   WHERE c2.id = c.id and c2.contribution_status_id = 1),
-                4 )) AS numfails
-              FROM civicrm_contribution AS c
-              WHERE c.contribution_recur_id = $recur_id GROUP BY c.contribution_recur_id;"
+    $sql=<<<EOF
+SELECT count(*) as numfails
+   FROM civicrm_contribution
+   WHERE contribution_recur_id = $recur_id
+    AND
+    id > (SELECT MAX(id) FROM civicrm_contribution WHERE contribution_recur_id = $recur_id AND contribution_status_id = 1);
+EOF;
 
     $result = CRM_Core_DAO::executeQuery($sql);
     if($result->fetch()) {
@@ -96,7 +96,7 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
        $ids['trxn_id'] = $input['trxn_id'];
 
        if($this->checkDuplicate($input, $ids) != NULL) {
-	 $msg = 'TrustCommerceIPN: Skipping duplicate contribution: '.$ids['contribution'].' for contact: '.$ids['contact'].' amount: $'.$input['amount'].' trxn_id: '.$input['trxn_id']."\n";
+	 $msg = 'TrustCommerceIPN: Skipping duplicate contribution: for contact: '.$ids['contact'].' amount: $'.$input['amount'].' trxn_id: '.$input['trxn_id']."\n";
 	 echo $msg;
 	 CRM_Core_Error::debug_log_message($msg);
 	 exit;
@@ -128,12 +128,46 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
 	
 	return $this->processRecur($input, $ids, $objects, $first);
 	
-    }
+      }
 
+    }
   }
-}
 
   protected function disableAutorenew($recur_id) {
+    /* Load payment processor object */
+    // HARD CODED
+    $msg = 'TrustCommerceIPN: MAX_FAILURES hit, unstoring billing ID: '.$recur_id."\n";
+
+    CRM_Core_Error::debug_log_message($msg);
+    echo $msg;
+
+    $sql = "SELECT user_name, password, url_site FROM civicrm_payment_processor WHERE id =  8 LIMIT 1";
+
+    $result = CRM_Core_DAO::executeQuery($sql);
+    if($result->fetch()) {
+      $request = array(
+		      'custid' => $result->user_name,
+		      'password' => $result->password,
+		      'action' => 'unstore',
+		      'billingid' => $recur_id
+		      );
+
+      $update = 'UPDATE civicrm_contribution_recur SET contribution_status_id = 3 WHERE processor_id = "'.$recur_id.'";';
+    $result1 = CRM_Core_DAO::executeQuery($update);
+
+      $tc = tclink_send($request);
+      if(!$tc) {
+	return -1;
+      }
+
+      return TRUE;
+      
+    } else {
+      echo 'CRITICAL ERROR: Could not load payment processor object';
+      return;
+    }
+
+    
 
   }
 
@@ -230,7 +264,7 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
       $recur->contribution_status_id = array_search($statusName, $contributionStatus);
       $recur->save();
       $input['is_test'] = 0;
-      $msg = 'TrustCommerceIPN: Created contribution: '.$ids['contribution'].' for contact: '.$ids['contact'].' amount: $'.$input['amount'].' trxn_id: '.$input['trxn_id'].' status: Completed'."\n";
+      $msg = 'TrustCommerceIPN: Created contribution: for contact: '.$ids['contact'].' amount: $'.$input['amount'].' trxn_id: '.$input['trxn_id'].' status: Completed'."\n";
       echo $msg;
       CRM_Core_Error::debug_log_message($msg);
 
@@ -244,13 +278,14 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
       $recur->cancel_date = $now;
       $recur->save();
       
-      $msg = 'TrustCommerceIPN: Created contribution: '.$ids['contribution'].' for contact: '.$ids['contact'].' amount: $'.$input['amount'].' trxn_id: '.$input['trxn_id'].' status: Failed'."\n";
+      $msg = 'TrustCommerceIPN: Created contribution: for contact: '.$ids['contact'].' amount: $'.$input['amount'].' trxn_id: '.$input['trxn_id'].' status: Failed'."\n";
       echo $msg;
       CRM_Core_Error::debug_log_message($msg);
 
       /* Action for repeated failures */
       if(MAX_FAILURES <= $this->getLastFailures($ids['contributionRecur'])) {
-	$this->disableAutoRenew(($ids['contributionRecur']));
+	//$this->disableAutoRenew(($ids['contributionRecur']));
+	$this->disableAutorenew($ids['processor_id']);
       }
       
       return $this->failed($objects, $transaction);
