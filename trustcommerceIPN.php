@@ -161,7 +161,7 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
     $recur->fee = 0;
     $recur->net_amount = $input['amount'];
 
-    $contribution->save();
+    $objects['contribution']->save();
 
     if ($input['status'] == 1) {
 
