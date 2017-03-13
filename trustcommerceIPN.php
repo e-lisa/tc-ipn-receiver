@@ -15,18 +15,59 @@
  * You should have received a copy of the GNU General Public License
  * along with CiviCRM.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Copyright (C) 2012
- * Licensed to CiviCRM under the GPL v3 or higher
- *
- * Modified by Lisa Marie Maginnis <lisa@fsf.org> (http://www.fsf.org)
+ * Copyright 2014-2017, Free Software Foundation
+ * Copyright 2014-2017, Lisa Marie Maginnis <lisa@fsf.org>
  *
  */
 
+/**
+  * CiviCRM (Instant Payment Notification) IPN processor module for
+  * TrustCommerece.
+  *
+  * For full documentation on the
+  * TrustCommerece API, please see the TCDevGuide for more information:
+  * https://vault.trustcommerce.com/downloads/TCDevGuide.htm
+  *
+  * This module supports the following features: Single credit/debit card
+  * transactions, AVS checking, recurring (create, update, and cancel
+  * subscription) optional blacklist with fail2ban,
+  *
+  * @copyright Free Software Foundation 2014-2017
+  * @version   1.0
+  * @package   org.fsf.payment.trustcommerce.ipn
+  */
+
+define("MAX_FAILURES", 4);
+
 class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
+
+  /**
+   * Inherit
+   *
+   * @return void
+   */
   function __construct() {
     parent::__construct();
   }
 
+  function getLastFailures($recur_id) {
+    $sql="SELECT count(*) as numfails
+          FROM civicrm_contribution
+          WHERE contribution_recur_id = $recur_id
+          AND
+          id > (SELECT MAX(id) FROM civicrm_contribution WHERE contribution_recur_id = $recur_id
+                AND contribution_status_id = 1);";
+
+    $result = CRM_Core_DAO::executeQuery($sql);
+    if($result->fetch()) {
+      $failures = $result->numfails;
+    } else {
+      $failures = NULL;
+    }
+
+    return $failures;
+
+  }
 
   function main($component = 'contribute') {
   static $no = NULL;
@@ -87,15 +128,50 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
 	
 	return $this->processRecur($input, $ids, $objects, $first);
 	
+      }
+
+    }
+  }
+
+  protected function disableAutorenew($recur_id) {
+    /* Load payment processor object */
+    // HARD CODED
+    $msg = 'TrustCommerceIPN: MAX_FAILURES hit, unstoring billing ID: '.$recur_id."\n";
+
+    CRM_Core_Error::debug_log_message($msg);
+    echo $msg;
+
+    $sql = "SELECT user_name, password, url_site FROM civicrm_payment_processor WHERE id =  8 LIMIT 1";
+
+    $result = CRM_Core_DAO::executeQuery($sql);
+    if($result->fetch()) {
+      $request = array(
+		      'custid' => $result->user_name,
+		      'password' => $result->password,
+		      'action' => 'unstore',
+		      'billingid' => $recur_id
+		      );
+
+      $update = 'UPDATE civicrm_contribution_recur SET contribution_status_id = 3 WHERE processor_id = "'.$recur_id.'";';
+    $result1 = CRM_Core_DAO::executeQuery($update);
+
+      $tc = tclink_send($request);
+      if(!$tc) {
+	return -1;
+      }
+
+      return TRUE;
+
+    } else {
+      echo 'CRITICAL ERROR: Could not load payment processor object';
+      return;
     }
 
   }
-}
 
   protected function checkDuplicate($input, $ids) {
-//    $sql='select id from civicrm_contribution where receive_date like \''.$input['date'].'%\' and total_amount='.$input['amount'].' and contact_id='.$ids['contact'].' and contribution_status_id =  1 limit 1';
+    // $sql='select id from civicrm_contribution where receive_date like \''.$input['date'].'%\' and total_amount='.$input['amount'].' and contact_id='.$ids['contact'].' and contribution_status_id =  1 limit 1';
     $sql="select id from civicrm_contribution where trxn_id = '".$ids['trxn_id']."' and contribution_status_id != 2";
-
 
     $result = CRM_Core_DAO::executeQuery($sql);
     if($result->fetch()) {
@@ -207,6 +283,13 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
 
       /* Disable cancelling transactions */
       $input['skipComponentSync'] = 1;
+
+      /* Action for repeated failures */
+      if(MAX_FAILURES <= $this->getLastFailures($ids['contributionRecur'])) {
+	//$this->disableAutoRenew(($ids['contributionRecur']));
+	$this->disableAutorenew($ids['processor_id']);
+      }
+
       return $this->failed($objects, $transaction, $input);
     }
 
@@ -226,18 +309,18 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
     }
   }
 
- protected function getIDs($billingid, $input, $module) {
+  protected function getIDs($billingid, $input, $module) {
     $sql = "SELECT cr.id, cr.contact_id, co.id as coid
-    	       FROM civicrm_contribution_recur cr
-	       INNER JOIN civicrm_contribution co ON co.contribution_recur_id = cr.id
-   	       WHERE cr.processor_id = '$billingid' LIMIT 1";
-
+            FROM civicrm_contribution_recur cr
+            INNER JOIN civicrm_contribution co ON co.contribution_recur_id = cr.id
+            WHERE cr.processor_id = '$billingid' LIMIT 1";
 
     $result = CRM_Core_DAO::executeQuery($sql);
     $result->fetch();
     $ids['contribution'] = $result->coid;
     $ids['contributionRecur'] = $result->id;
     $ids['contact'] = $result->contact_id;
+    $ids['processor_id'] = $billingid;
 
     if (!$ids['contributionRecur']) {
       CRM_Core_Error::debug_log_message("Could not find billingid: ".$billingid);
@@ -258,11 +341,10 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
       // get the optional ids
 
       // Get membershipId. Join with membership payment table for additional checks
-      $sql = "
-    SELECT m.id
-      FROM civicrm_membership as m
-     WHERE m.contribution_recur_id = '{$ids['contributionRecur']}'
-     LIMIT 1";
+      $sql = "SELECT m.id
+              FROM civicrm_membership as m
+              WHERE m.contribution_recur_id = '{$ids['contributionRecur']}'
+              LIMIT 1";
       if ($membershipId = CRM_Core_DAO::singleValueQuery($sql)) {
 
 	$ids['membership'] = $membershipId;
@@ -270,9 +352,7 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
       
     }
 
-  return $ids;
-}
-
-
+    return $ids;
+  }
 
 }
