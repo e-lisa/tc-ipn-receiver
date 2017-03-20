@@ -183,6 +183,7 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
     return $id;
   }
   protected function processRecur($input, $ids, $objects, $first) {
+    $lastfailures = $this->getLastFailures($ids['contributionRecur']);
     $recur = &$objects['contributionRecur'];
     $contributionStatus = CRM_Contribute_PseudoConstant::contributionStatus(NULL, 'name');
 
@@ -285,7 +286,7 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
       $input['skipComponentSync'] = 1;
 
       /* Action for repeated failures */
-      if(MAX_FAILURES <= $this->getLastFailures($ids['contributionRecur'])) {
+      if(MAX_FAILURES <= $lastfailures) {
 	//$this->disableAutoRenew(($ids['contributionRecur']));
 	$this->disableAutorenew($ids['processor_id']);
       }
