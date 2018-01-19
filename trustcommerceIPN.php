@@ -109,9 +109,15 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
 	 $objects['membership'] = array(&$obj);
        }
 
-      $paymentProcessorID = CRM_Core_DAO::getFieldValue('CRM_Financial_DAO_PaymentProcessorType',
+      $paymentProcessorTypeID = CRM_Core_DAO::getFieldValue('CRM_Financial_DAO_PaymentProcessorType',
 							'TrustCommerce', 'id', 'name'
 							);
+      $paymentProcessorID = civicrm_api3('PaymentProcessor', 'getvalue', array(
+          'is_test' => 0,
+          'options' => array('limit' => 1),
+          'payment_processor_type_id' => $paymentProcessorTypeID,
+          'return' => 'id',
+      ));
 
       if (!$this->validateData($input, $ids, $objects, TRUE, $paymentProcessorID)) {
         return FALSE;
