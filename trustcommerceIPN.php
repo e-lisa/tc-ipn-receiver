@@ -289,7 +289,7 @@ class CRM_Core_Payment_trustcommerce_IPN extends CRM_Core_Payment_BaseIPN {
       CRM_Core_Error::debug_log_message($msg);
 
       /* Disable cancelling transactions */
-      $input['skipComponentSync'] = 1;
+      $input['IAmAHorribleNastyBeyondExcusableHackInTheCRMEventFORMTaskClassThatNeedsToBERemoved'] = 1;
 
       /* Action for repeated failures */
       if(MAX_FAILURES <= $lastfailures) {
